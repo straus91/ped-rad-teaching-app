@@ -1,4 +1,7 @@
-# api/services/dicom_service.py
+# Verify your api/services/dicom_service.py has all these components
+
+# Make sure you have pydicom installed:
+# pip install pydicom
 
 import os
 import json
@@ -9,8 +12,6 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from ..models import Case, DicomSeries, DicomImage
-
-logger = logging.getLogger(__name__)
 
 class DicomService:
     """
@@ -60,40 +61,32 @@ class DicomService:
         """
         # Extract basic metadata
         metadata = {
-            'patient_id': dicom_dataset.get('PatientID', ''),
-            'patient_name': str(dicom_dataset.get('PatientName', '')),
-            'study_date': dicom_dataset.get('StudyDate', ''),
-            'series_date': dicom_dataset.get('SeriesDate', ''),
-            'modality': dicom_dataset.get('Modality', ''),
-            'manufacturer': dicom_dataset.get('Manufacturer', ''),
-            'institution_name': dicom_dataset.get('InstitutionName', ''),
-            'window_center': dicom_dataset.get('WindowCenter', None),
-            'window_width': dicom_dataset.get('WindowWidth', None),
+            'patient_id': str(getattr(dicom_dataset, 'PatientID', '')),
+            'study_date': str(getattr(dicom_dataset, 'StudyDate', '')),
+            'series_date': str(getattr(dicom_dataset, 'SeriesDate', '')),
+            'modality': str(getattr(dicom_dataset, 'Modality', '')),
+            'manufacturer': str(getattr(dicom_dataset, 'Manufacturer', '')),
         }
         
-        # Add additional fields if available
-        if 'PixelSpacing' in dicom_dataset:
-            metadata['pixel_spacing'] = [float(x) for x in dicom_dataset.PixelSpacing]
+        # Add window settings if available
+        if hasattr(dicom_dataset, 'WindowCenter'):
+            metadata['window_center'] = float(dicom_dataset.WindowCenter) if isinstance(dicom_dataset.WindowCenter, (int, float)) else None
+        if hasattr(dicom_dataset, 'WindowWidth'):
+            metadata['window_width'] = float(dicom_dataset.WindowWidth) if isinstance(dicom_dataset.WindowWidth, (int, float)) else None
         
-        if 'ImageOrientationPatient' in dicom_dataset:
-            metadata['image_orientation_patient'] = [float(x) for x in dicom_dataset.ImageOrientationPatient]
+        # Add pixel spacing if available
+        if hasattr(dicom_dataset, 'PixelSpacing'):
+            try:
+                metadata['pixel_spacing'] = [float(x) for x in dicom_dataset.PixelSpacing]
+            except:
+                metadata['pixel_spacing'] = None
         
-        if 'ImagePositionPatient' in dicom_dataset:
-            metadata['image_position_patient'] = [float(x) for x in dicom_dataset.ImagePositionPatient]
-        
-        if 'SliceThickness' in dicom_dataset:
-            metadata['slice_thickness'] = float(dicom_dataset.SliceThickness)
-        
-        if 'Rows' in dicom_dataset and 'Columns' in dicom_dataset:
+        # Add image dimensions
+        if hasattr(dicom_dataset, 'Rows') and hasattr(dicom_dataset, 'Columns'):
             metadata['dimensions'] = {
                 'rows': int(dicom_dataset.Rows),
                 'columns': int(dicom_dataset.Columns)
             }
-        
-        # Ensure all values are JSON serializable
-        for key, value in metadata.items():
-            if isinstance(value, (pydicom.uid.UID, pydicom.valuerep.PersonName)):
-                metadata[key] = str(value)
         
         return metadata
     
@@ -116,39 +109,15 @@ class DicomService:
             'PatientMotherBirthName',
             'OtherPatientIDs',
             'OtherPatientNames',
-            'OtherPatientIDsSequence',
             'PatientBirthName',
-            'PatientSize',
-            'PatientWeight',
             'MilitaryRank',
             'BranchOfService',
             'MedicalRecordLocator',
-            'MedicalAlerts',
-            'Allergies',
-            'AdmittingDiagnosesDescription',
-            'AdmittingDiagnosesCodeSequence',
-            'OperatorsName',
-            'ReferringPhysicianName',
-            'ReferringPhysicianAddress',
-            'ReferringPhysicianTelephoneNumbers',
-            'ReferringPhysicianIdentificationSequence',
-            'ConsultingPhysicianName',
-            'ConsultingPhysicianIdentificationSequence',
-            'RequestingPhysician',
-            'NameOfPhysiciansReadingStudy',
-            'PhysiciansOfRecord',
-            'PhysiciansOfRecordIdentificationSequence',
-            'PerformingPhysicianName',
-            'PerformingPhysicianIdentificationSequence',
-            'InstitutionAddress',
-            'InstitutionNameCodeSequence',
-            'InstitutionalDepartmentName',
-            'InstitutionalDepartmentTypeCodeSequence',
         ]
         
         # Anonymize each field
         for field in fields_to_anonymize:
-            if field in anonymized:
+            if hasattr(anonymized, field):
                 if field == 'PatientName':
                     anonymized.PatientName = 'Anonymous'
                 elif field == 'PatientID':
@@ -194,9 +163,10 @@ class DicomService:
                 # Read DICOM file
                 dicom_dataset = pydicom.dcmread(dicom_file, force=True)
                 
-                # Check if it's a valid DICOM file
-                if not hasattr(dicom_dataset, 'SOPInstanceUID'):
-                    logger.warning(f"File {dicom_file.name} is not a valid DICOM file.")
+                # Check if it's a valid DICOM file with required attributes
+                required_attrs = ['SOPInstanceUID', 'SeriesInstanceUID']
+                if not all(hasattr(dicom_dataset, attr) for attr in required_attrs):
+                    logging.warning(f"File {dicom_file.name} is missing required DICOM attributes.")
                     stats['skipped_files'] += 1
                     continue
                 
@@ -206,7 +176,7 @@ class DicomService:
                 
                 # Skip if image already exists
                 if DicomImage.objects.filter(sop_instance_uid=sop_instance_uid).exists():
-                    logger.info(f"Image with SOPInstanceUID {sop_instance_uid} already exists. Skipping.")
+                    logging.info(f"Image with SOPInstanceUID {sop_instance_uid} already exists. Skipping.")
                     stats['skipped_files'] += 1
                     continue
                 
@@ -255,7 +225,7 @@ class DicomService:
                 stats['processed_files'] += 1
                 
             except Exception as e:
-                logger.error(f"Error processing DICOM file {dicom_file.name}: {str(e)}")
+                logging.error(f"Error processing DICOM file {dicom_file.name}: {str(e)}")
                 stats['error_files'] += 1
                 continue
         
@@ -288,5 +258,5 @@ class DicomService:
             
             return True
         except Exception as e:
-            logger.error(f"Error deleting DICOM data for case {case_id}: {str(e)}")
+            logging.error(f"Error deleting DICOM data for case {case_id}: {str(e)}")
             return False

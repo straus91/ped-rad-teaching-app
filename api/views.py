@@ -1,4 +1,4 @@
-from django.shortcuts import render
+# api/views.py
 from django.http import HttpResponse, FileResponse
 from django.utils import timezone
 from rest_framework import viewsets, permissions, status
@@ -8,6 +8,9 @@ from rest_framework.parsers import MultiPartParser, FormParser
 import os
 import mimetypes
 import logging
+
+from rest_framework.permissions import IsAdminUser, IsAuthenticated, BasePermission, SAFE_METHODS
+
 
 from .models import Case, Report, DicomSeries, DicomImage, Feedback
 from .serializers import (
@@ -19,14 +22,31 @@ from .services.dicom_service import DicomService
 
 logger = logging.getLogger(__name__)
 
+class IsAdminUserOrReadOnly(BasePermission):
+    """
+    The request is authenticated as an admin user, or is a read-only request.
+    """
+
+    def has_permission(self, request, view):
+        return bool(
+            request.method in SAFE_METHODS or
+            request.user and
+            request.user.is_staff
+        )
+
 class CaseViewSet(viewsets.ModelViewSet):
     """
     API endpoint that allows Cases to be viewed or edited.
+    Only allows administrators to create/edit cases, but allows authenticated users to view.
     """
-    queryset = Case.objects.all().order_by('-creation_date') # Get all cases, newest first
+    queryset = Case.objects.all().order_by('-creation_date')
     serializer_class = CaseSerializer
-    # Use default permissions from settings (IsAuthenticatedOrReadOnly)
-    # permission_classes = [permissions.IsAuthenticatedOrReadOnly] # Or specify explicitly
+    permission_classes = [IsAuthenticated, IsAdminUserOrReadOnly]
+    """
+    API endpoint that allows Cases to be viewed or edited.
+    """
+    queryset = Case.objects.all().order_by('-creation_date')
+    serializer_class = CaseSerializer
     
     @action(detail=True, methods=['get'])
     def series(self, request, pk=None):
@@ -75,7 +95,7 @@ class ReportViewSet(viewsets.ModelViewSet):
     Only allows users to see/edit their own reports.
     """
     serializer_class = ReportSerializer
-    permission_classes = [permissions.IsAuthenticated] # Must be logged in to interact with reports
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         """
@@ -86,7 +106,7 @@ class ReportViewSet(viewsets.ModelViewSet):
         if user.is_authenticated:
             # Filter reports by the logged-in user
             return Report.objects.filter(author=user).order_by('-creation_date')
-        # Return empty queryset if user is not authenticated (though permission class should prevent this)
+        # Return empty queryset if user is not authenticated
         return Report.objects.none()
 
     def perform_create(self, serializer):

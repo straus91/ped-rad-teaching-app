@@ -84,7 +84,7 @@ class Report(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='reports') # Link to the Case
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reports') # Link to the User who wrote it
-    content = models.TextField(help_text="The user's diagnostic report text")
+    content = models.TextField(help_text="The user's diagnostic report text", blank=True, default='')
     language = models.CharField(max_length=10, default='en', help_text="Language code (e.g., 'en', 'es', 'fr')")
     
     STATUS_CHOICES = [

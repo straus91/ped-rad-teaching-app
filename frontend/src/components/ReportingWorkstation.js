@@ -1,35 +1,10 @@
 // src/components/ReportingWorkstation.js
 import React, { useState, useEffect } from 'react';
 import DicomViewer from './DicomViewer';
+// Import the debugging API call function
+import { debugApiCall } from '../utils/debugApiCall';
 
-// Helper Function for API Calls (using your existing apiCall function)
-const apiCall = async (endpoint, method = 'GET', data = null, token = null) => {
-  const API_BASE_URL = 'http://127.0.0.1:8000/api';
-  const url = `${API_BASE_URL}${endpoint}`;
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) { headers['Authorization'] = `Token ${token}`; }
-  
-  const config = { method: method, headers: headers };
-  if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
-    config.body = JSON.stringify(data);
-  }
-  
-  try {
-    const response = await fetch(url, config);
-    if (!response.ok) {
-      let errorData;
-      try { errorData = await response.json(); }
-      catch (e) { errorData = { detail: `HTTP error! status: ${response.status}` }; }
-      const error = new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      error.status = response.status; error.data = errorData; throw error;
-    }
-    if (response.status === 204) return null;
-    return await response.json();
-  } catch (error) { 
-    console.error(`API call failed for ${method} ${endpoint}:`, error); 
-    throw error; 
-  }
-};
+import DicomUploader from './DicomUploader'
 
 const ReportingWorkstation = ({ authToken, navigate, params }) => {
   const { caseId } = params;
@@ -52,17 +27,23 @@ const ReportingWorkstation = ({ authToken, navigate, params }) => {
       setLoading(true);
       setError(null);
       
+      console.log("Starting data fetch for case: ", caseId);
+      
       // Fetch case details
-      apiCall(`/cases/${caseId}/`, 'GET', null, authToken)
+      debugApiCall(`/cases/${caseId}/`, 'GET', null, authToken)
         .then(data => { 
+          console.log("Case details received: ", data);
           setCaseDetails(data);
           
           // Check if user has an existing report for this case
-          return apiCall('/reports/', 'GET', null, authToken);
+          return debugApiCall('/reports/', 'GET', null, authToken);
         })
         .then(reports => {
+          console.log("User reports received: ", reports);
+          
           // Find a report for this case
           const existingReport = reports.find(r => r.case_id === parseInt(caseId));
+          console.log("Existing report for this case: ", existingReport);
           
           if (existingReport) {
             setReportContent(existingReport.content || '');
@@ -76,24 +57,35 @@ const ReportingWorkstation = ({ authToken, navigate, params }) => {
               navigate('feedback', { reportId: existingReport.id });
             }
           } else {
-            // Create a new draft report
-            return apiCall('/reports/', 'POST', {
-              case_id: caseId,
+            // Create a new draft report with DETAILED DEBUG LOGGING
+            const newReportData = {
+              case_id: parseInt(caseId),
               content: '',
               language: 'en',
               status: 'draft'
-            }, authToken);
+            };
+            
+            console.log("Creating new report with data:", newReportData);
+            
+            return debugApiCall('/reports/', 'POST', newReportData, authToken);
           }
         })
         .then(newReport => {
           if (newReport) {
+            console.log("New report created:", newReport);
             setReportId(newReport.id);
+            setLastSaved(new Date());
           }
           setLoading(false);
         })
         .catch(err => {
           console.error(`Failed to fetch data for case ${caseId}:`, err);
-          setError(err.message || `Failed to load case details.`);
+          // Show more detailed error information
+          let errorDetails = '';
+          if (err.data) {
+            errorDetails = JSON.stringify(err.data);
+          }
+          setError(`${err.message || `Failed to load case details.`} ${errorDetails}`);
           setLoading(false);
         });
     } else if (!authToken) {
@@ -117,12 +109,16 @@ const ReportingWorkstation = ({ authToken, navigate, params }) => {
     if (!reportId) return;
     
     try {
-      const data = await apiCall(`/reports/${reportId}/`, 'PUT', {
-        case_id: caseId,
+      const updateData = {
+        case_id: parseInt(caseId),
         content: reportContent,
         language: language,
         status: reportStatus
-      }, authToken);
+      };
+      
+      console.log("Updating report with data:", updateData);
+      
+      const data = await debugApiCall(`/reports/${reportId}/`, 'PUT', updateData, authToken);
       
       setLastSaved(new Date());
       return data;
@@ -145,7 +141,7 @@ const ReportingWorkstation = ({ authToken, navigate, params }) => {
       await updateReport();
       
       // Then submit for feedback
-      const data = await apiCall(`/reports/${reportId}/submit/`, 'POST', null, authToken);
+      const data = await debugApiCall(`/reports/${reportId}/submit/`, 'POST', null, authToken);
       
       console.log('Report submission response:', data);
       setSubmitSuccess("Report submitted successfully! Generating feedback...");
@@ -158,9 +154,11 @@ const ReportingWorkstation = ({ authToken, navigate, params }) => {
     } catch (err) {
       let errorMessage = `Failed to submit report.`;
       if (err.data) {
-        errorMessage = Object.entries(err.data).map(([field, messages]) => 
-          `${field}: ${Array.isArray(messages) ? messages.join(' ') : messages}`
-        ).join('; ');
+        errorMessage = typeof err.data === 'object' ? 
+          Object.entries(err.data).map(([field, messages]) => 
+            `${field}: ${Array.isArray(messages) ? messages.join(' ') : messages}`
+          ).join('; ') : 
+          String(err.data);
       }
       else if (err.message) {
         errorMessage = err.message;
@@ -265,7 +263,7 @@ IMPRESSION:
     return (
       <div className="flex flex-col items-center justify-center h-screen text-red-700">
         <p className="font-semibold">Error:</p>
-        <p>{error}</p>
+        <p className="max-w-md text-center">{error}</p>
         <button 
           onClick={() => navigate('dashboard')} 
           className="mt-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-sm hover:bg-indigo-700"
@@ -333,6 +331,14 @@ IMPRESSION:
                 <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
                   <h3 className="text-base font-semibold mb-2 text-gray-900 border-b pb-1.5">Clinical Information</h3>
                   <p className="text-sm text-gray-700">{caseDetails.description}</p>
+                  <DicomUploader 
+                    caseId={caseId} 
+                    authToken={authToken}
+                    onUploadComplete={() => {
+                      // Refresh the DICOM viewer or show a success message
+                      alert('DICOM files uploaded successfully');
+                    }}
+                  />
                 </div>
                 
                 <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">

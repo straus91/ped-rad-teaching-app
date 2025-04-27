@@ -1,0 +1,9 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools-items %}
+{{ block.super }}
+<li>
+    <a href="{% url 'admin:api_case_upload_dicom' original.pk %}" class="historylink">Upload DICOM Files</a>
+</li>
+{% endblock %}

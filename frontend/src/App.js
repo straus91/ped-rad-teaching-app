@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DicomViewer from './components/DicomViewer';
 import ReportingWorkstation from './components/ReportingWorkstation';
 import FeedbackPage from './components/FeedbackPage';
+import CaseManagement from './components/CaseManagement';
 
 // --- Constants ---
 const API_BASE_URL = 'http://127.0.0.1:8000/api';
@@ -171,6 +172,8 @@ function App() {
                 return <ReportingWorkstation authToken={authToken} navigate={navigate} params={params} />;
             case 'feedback':
                 return <FeedbackPage authToken={authToken} navigate={navigate} params={params} />;
+            case 'case-management':
+                return <CaseManagement authToken={authToken} navigate={navigate} />;
             default:
                 return <Dashboard authToken={authToken} setAuthToken={setAuthToken} navigate={navigate} />;
         }
@@ -183,7 +186,7 @@ function App() {
                 return <LoginRegister setAuthToken={setAuthToken} navigate={navigate} />;
         }
     }
-  };
+};
 
   return (
     <div>
